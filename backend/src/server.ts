@@ -13,7 +13,7 @@ import { requirementsService } from './services/requirementsService';
 import { pipelineEventBus } from './services/pipelineEvents';
 import { finalizeImplementation, implementSprint, validateImplementation, createPRsForRun } from './services/agentImplementationService';
 import { listTemplates, openScaffoldPR } from './services/scaffoldService';
-import { deployRun, stopDeployment, getDeployment, readDeploymentLog, readSandboxLog, readFixAgentLog, initializeDeploymentTables, getSourceTree, getSourceFile, runVerification, deployEvents } from './services/deploymentService';
+import { deployRun, stopDeployment, getDeployment, readDeploymentLog, readSandboxLog, readFixAgentLog, initializeDeploymentTables, getSourceTree, getSourceFile, runVerification, deployEvents, listImplementationVersions } from './services/deploymentService';
 import { generatePlanDoc, generatePlanOverviewDoc, generateDesignDoc, generateDesignOverviewDoc, type PlanArtifact, type DesignArtifact } from './services/documentationService';
 import { orgsRouter } from './routes/orgsRouter';
 import { teamsRouter } from './routes/teamsRouter';
@@ -219,6 +219,9 @@ const pool = new Pool({
         await pool.query(`ALTER TABLE pipeline_runs           ADD COLUMN IF NOT EXISTS project_id UUID REFERENCES projects(uuid) ON DELETE SET NULL`);
         await pool.query(`ALTER TABLE workspace_members       ADD COLUMN IF NOT EXISTS org_id     UUID REFERENCES organizations(id) ON DELETE SET NULL`);
         await pool.query(`ALTER TABLE integration_connections ADD COLUMN IF NOT EXISTS org_id     UUID REFERENCES organizations(id) ON DELETE SET NULL`);
+        await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS github_connection_id UUID REFERENCES integration_connections(id) ON DELETE SET NULL`);
+        await pool.query(`ALTER TABLE projects ADD COLUMN IF NOT EXISTS project_type TEXT DEFAULT 'new' CHECK (project_type IN ('new','existing'))`);
+        await pool.query(`UPDATE projects SET project_type = 'new' WHERE project_type IS NULL`);
 
         // Seed default org + project; backfill all orphaned rows
         await pool.query(`
@@ -756,10 +759,22 @@ app.post('/api/pipelines/:run_id/create-prs', async (req, res) => {
 // Local deployment APIs
 // ============================
 
+// List available implementation versions (current + archived) for a run.
+app.get('/api/pipelines/:run_id/implementation/versions', async (req, res) => {
+    try {
+        const versions = await listImplementationVersions(req.params.run_id);
+        res.json({ versions });
+    } catch (err) {
+        res.status(500).json({ error: err instanceof Error ? err.message : 'Failed to list versions' });
+    }
+});
+
 // Start (or re-start) a local deployment of the run's generated app.
+// Optional body: { version: number } — deploy a specific archived version.
 app.post('/api/pipelines/:run_id/deploy', async (req, res) => {
     try {
-        const dep = await deployRun(req.params.run_id);
+        const version = typeof req.body?.version === 'number' ? req.body.version : undefined;
+        const dep = await deployRun(req.params.run_id, version);
         res.status(202).json(dep);
     } catch (err) {
         console.error('Failed to start deployment:', err);
@@ -1420,55 +1435,8 @@ app.post('/api/docs/generate', async (req, res) => {
 
 // ============================
 // Integration Management APIs
+// (CRUD is handled by orgsRouter under /api/orgs/:orgId/integrations)
 // ============================
-
-// List all integrations
-app.get('/api/integrations', async (req, res) => {
-    try {
-        const connections = await integrationService.getConnections();
-        res.json(connections);
-    } catch (err) {
-        console.error('Failed to list integrations:', err);
-        res.status(500).json({ error: 'Failed to list integrations' });
-    }
-});
-
-// Create integration
-app.post('/api/integrations', async (req, res) => {
-    try {
-        const connection = await integrationService.createConnection(req.body);
-        res.status(201).json(connection);
-    } catch (err) {
-        console.error('Failed to create integration:', err);
-        res.status(500).json({ error: 'Failed to create integration' });
-    }
-});
-
-// Test integration
-app.post('/api/integrations/:id/test', async (req, res) => {
-    try {
-        const result = await integrationService.testConnection(req.params.id);
-        res.json(result);
-    } catch (err) {
-        console.error('Integration test failed:', err);
-        res.status(500).json({ error: 'Integration test failed' });
-    }
-});
-
-// Delete integration
-app.delete('/api/integrations/:id', async (req, res) => {
-    try {
-        const success = await integrationService.deleteConnection(req.params.id);
-        if (success) {
-            res.status(204).send();
-        } else {
-            res.status(404).json({ error: 'Integration not found' });
-        }
-    } catch (err) {
-        console.error('Failed to delete integration:', err);
-        res.status(500).json({ error: 'Failed to delete integration' });
-    }
-});
 
 // GitHub: List repositories
 app.get('/api/integrations/github/:id/repos', async (req, res) => {

@@ -285,10 +285,10 @@ export function PipelineDetail({ runId, onBack, onNavigate, onOpenPlanner, onOpe
         if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
     }
 
-    async function handleDeploy() {
+    async function handleDeploy(version?: number) {
         if (deployBusy) return;
         try {
-            await startDeploy(runId);
+            await startDeploy(runId, version);
         } catch (e) {
             alert(`Deploy failed: ${e instanceof Error ? e.message : 'unknown'}`);
         }
@@ -1082,7 +1082,7 @@ function DeploymentStrip({
 }: {
     deployment: any;
     busy: boolean;
-    onDeploy: () => void;
+    onDeploy: (version?: number) => void;
     onStop: () => void;
     onToggleLogs?: () => void;
     logsShown?: boolean;
@@ -1167,7 +1167,7 @@ function DeploymentStrip({
                 ) : null}
                 {!live ? (
                     <button
-                        onClick={onDeploy}
+                        onClick={() => onDeploy()}
                         disabled={busy}
                         style={{
                             background: tokens.color.primary, color: 'white', border: 'none',

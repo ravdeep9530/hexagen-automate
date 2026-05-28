@@ -221,7 +221,7 @@ export const PipelinesScreen: React.FC<PipelinesScreenProps> = ({ onOpen, onNew 
               {!loading && filtered.length === 0 && (
                 <tr>
                   <td colSpan={7} style={{textAlign: 'center', padding: '28px 0', color: 'var(--text-3)', fontSize: 13}}>
-                    No runs found.
+                    {!activeProject ? 'Select a project to view its pipelines.' : 'No runs found.'}
                   </td>
                 </tr>
               )}

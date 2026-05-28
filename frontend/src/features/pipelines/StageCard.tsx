@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { Stage, StageStatus, VerificationResult, useRunVerification } from '../../api/pipelinesApi';
+import { Stage, StageStatus, VerificationResult, useRunVerification, useImplementationVersions } from '../../api/pipelinesApi';
 import { tokens, statusStyle, StageStatusName } from './design';
 import { StageVisualization } from './StageVisualizations';
 import { DeploymentLogs } from './DeploymentLogs';
@@ -165,7 +165,7 @@ interface Props {
         verification_status?: string | null;
         verification_result?: VerificationResult | null;
     } | null;
-    onDeploy?: () => void;
+    onDeploy?: (version?: number) => void;
     onStopDeploy?: () => void;
     onFixDeployError?: () => void;
     deployBusy?: boolean;
@@ -195,7 +195,9 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
     const [clarifyBusy, setClarifyBusy] = useState(false);
     const [syncBusy, setSyncBusy] = useState(false);
     const [showScreenshot, setShowScreenshot] = useState(false);
+    const [selectedDeployVersion, setSelectedDeployVersion] = useState<number | null>(null);
     const { verify: triggerVerify, loading: verifyBusy } = useRunVerification();
+    const { versions: implVersions } = useImplementationVersions(stage === 'implementation' ? (runId ?? null) : null);
 
     const s: StageStatusName = (status?.status as StageStatusName) || 'pending';
     const sty = statusStyle[s];
@@ -667,7 +669,7 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
                                                 }}>🔧 Fix</button>
                                             ) : null}
                                             {onDeploy ? (
-                                                <button onClick={onDeploy} disabled={!!deployBusy} style={{
+                                                <button onClick={() => onDeploy()} disabled={!!deployBusy} style={{
                                                     background: tokens.color.primary, color: 'white', border: 'none',
                                                     padding: '5px 12px', borderRadius: tokens.radius.sm,
                                                     fontWeight: 600, fontSize: 12,
@@ -812,13 +814,38 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
                             {stage === 'implementation' && onDeploy && s === 'approved' ? (() => {
                                 const dStatus = deployment?.status;
                                 const live = dStatus === 'starting' || dStatus === 'installing' || dStatus === 'running';
-                                const url = deployment?.url || null;
-                                const building = dStatus === 'installing';
+                                const hasVersions = implVersions.length > 1;
+                                // selectedDeployVersion=null means "current/latest"
+                                const deployLabel = selectedDeployVersion != null
+                                    ? `▶ Deploy v${selectedDeployVersion}`
+                                    : (dStatus === 'stopped' || dStatus === 'failed' ? '↻ Redeploy' : '▶ Deploy');
                                 return (
                                     <>
+                                        {/* Version selector — only shown when archived versions exist */}
+                                        {hasVersions && !live ? (
+                                            <select
+                                                value={selectedDeployVersion ?? ''}
+                                                onChange={e => setSelectedDeployVersion(e.target.value === '' ? null : Number(e.target.value))}
+                                                style={{
+                                                    fontSize: 12, padding: '4px 8px',
+                                                    borderRadius: tokens.radius.sm,
+                                                    border: `1px solid ${tokens.color.border}`,
+                                                    background: tokens.color.card,
+                                                    color: tokens.color.text,
+                                                    cursor: 'pointer',
+                                                }}
+                                            >
+                                                {implVersions.map(v => (
+                                                    <option key={v.version} value={v.is_current ? '' : v.version}>
+                                                        {v.label} — {v.succeeded_count}/{v.outcomes_count} passed
+                                                        {v.archived_at ? ` · ${new Date(v.archived_at).toLocaleDateString()}` : ''}
+                                                    </option>
+                                                ))}
+                                            </select>
+                                        ) : null}
                                         {!live ? (
                                             <button
-                                                onClick={onDeploy}
+                                                onClick={() => onDeploy(selectedDeployVersion ?? undefined)}
                                                 disabled={!!deployBusy}
                                                 style={{
                                                     background: tokens.color.primary, color: 'white', border: 'none',
@@ -828,7 +855,7 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
                                                     opacity: deployBusy ? 0.6 : 1,
                                                 }}
                                             >
-                                                {deployBusy ? '…' : (dStatus === 'stopped' || dStatus === 'failed' ? '↻ Redeploy' : '▶ Deploy')}
+                                                {deployBusy ? '…' : deployLabel}
                                             </button>
                                         ) : (
                                             <button
@@ -857,23 +884,32 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
                             })() : null}
                             {onRerun && (s === 'approved' || s === 'rejected' || s === 'failed' || s === 'skipped') ? (() => {
                                 const rerunSupported = stage === 'implementation' || stage === 'requirements';
+                                const nextVersion = implVersions.length + 1;
+                                const hasExisting = stage === 'implementation' && implVersions.length > 0;
                                 return (
-                                    <button
-                                        onClick={onRerun}
-                                        disabled={!rerunSupported}
-                                        title={rerunSupported
-                                            ? 'Re-run this stage in place using cached upstream artifacts'
-                                            : 'Stage-level rerun is only supported for implementation and requirements today. Use "Rerun pipeline" to restart from the beginning.'}
-                                        style={{
-                                            background: 'transparent', border: `1px solid ${tokens.color.border}`,
-                                            color: rerunSupported ? tokens.color.text : tokens.color.textSubtle,
-                                            cursor: rerunSupported ? 'pointer' : 'not-allowed',
-                                            opacity: rerunSupported ? 1 : 0.55,
-                                            fontSize: 12, padding: '4px 10px', borderRadius: tokens.radius.sm,
-                                        }}
-                                    >
-                                        ↻ Rerun stage
-                                    </button>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                                        <button
+                                            onClick={onRerun}
+                                            disabled={!rerunSupported}
+                                            title={rerunSupported
+                                                ? (hasExisting ? `Current code will be archived as v${nextVersion - 1}. New run becomes v${nextVersion}.` : 'Re-run this stage in place using cached upstream artifacts')
+                                                : 'Stage-level rerun is only supported for implementation and requirements today.'}
+                                            style={{
+                                                background: 'transparent', border: `1px solid ${tokens.color.border}`,
+                                                color: rerunSupported ? tokens.color.text : tokens.color.textSubtle,
+                                                cursor: rerunSupported ? 'pointer' : 'not-allowed',
+                                                opacity: rerunSupported ? 1 : 0.55,
+                                                fontSize: 12, padding: '4px 10px', borderRadius: tokens.radius.sm,
+                                            }}
+                                        >
+                                            ↻ Rerun stage
+                                        </button>
+                                        {hasExisting ? (
+                                            <span style={{ fontSize: 11, color: tokens.color.textMuted }}>
+                                                archives current as v{nextVersion - 1}
+                                            </span>
+                                        ) : null}
+                                    </div>
                                 );
                             })() : null}
                             {stage === 'requirements' && onSyncFromSharePoint && (s === 'awaiting_approval' || s === 'awaiting_clarification') ? (

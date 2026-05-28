@@ -691,8 +691,67 @@ export async function stopDeployment(runId: string): Promise<{ stopped: boolean 
  * Returns immediately after inserting the DB row in `installing` state —
  * the build + run happen in the background and SSE pushes `running`/`failed`.
  */
-export async function deployRun(runId: string): Promise<Deployment> {
-    const workDir = path.join(DEPLOYMENTS_ROOT, runId, SOURCE_DIR_NAME);
+/**
+ * List all archived implementation versions for a run.
+ * Reads sprint_history from artifact_json and checks which source_v{N} dirs exist on disk.
+ */
+export async function listImplementationVersions(runId: string): Promise<Array<{
+    version: number;
+    label: string;
+    archived_at: string | null;
+    source_dir: string;
+    outcomes_count: number;
+    succeeded_count: number;
+    is_current: boolean;
+}>> {
+    const result = await pool.query(
+        `SELECT artifact_json FROM pipeline_stage_status WHERE run_id = $1 AND stage = 'implementation'`,
+        [runId]
+    );
+    const artifact = result.rows[0]?.artifact_json ?? {};
+    const history: any[] = Array.isArray(artifact.sprint_history) ? artifact.sprint_history : [];
+    const current = artifact.sprint;
+
+    const versions: Array<{
+        version: number; label: string; archived_at: string | null;
+        source_dir: string; outcomes_count: number; succeeded_count: number; is_current: boolean;
+    }> = [];
+
+    // Archived versions
+    for (const h of history) {
+        const outcomes: any[] = Array.isArray(h.sprint?.outcomes) ? h.sprint.outcomes : [];
+        versions.push({
+            version: h.version,
+            label: `v${h.version}`,
+            archived_at: h.archived_at ?? null,
+            source_dir: h.source_dir ?? `source_v${h.version}`,
+            outcomes_count: outcomes.length,
+            succeeded_count: outcomes.filter((o: any) => o.implementation_json && !o.final_errors?.length && !o.skipped).length,
+            is_current: false,
+        });
+    }
+
+    // Current (latest) version
+    if (current) {
+        const currentVersion = history.length + 1;
+        const outcomes: any[] = Array.isArray(current.outcomes) ? current.outcomes : [];
+        versions.push({
+            version: currentVersion,
+            label: `v${currentVersion} (current)`,
+            archived_at: null,
+            source_dir: SOURCE_DIR_NAME,
+            outcomes_count: outcomes.length,
+            succeeded_count: outcomes.filter((o: any) => o.implementation_json && !o.final_errors?.length && !o.skipped).length,
+            is_current: true,
+        });
+    }
+
+    return versions;
+}
+
+export async function deployRun(runId: string, sourceVersion?: number): Promise<Deployment> {
+    const sourceDirName = sourceVersion != null ? `source_v${sourceVersion}` : SOURCE_DIR_NAME;
+    const workDir = path.join(DEPLOYMENTS_ROOT, runId, sourceDirName);
     const logPath = path.join(DEPLOYMENTS_ROOT, runId, LOG_FILE_NAME);
 
     const sourceExists = await fs.access(workDir).then(() => true).catch(() => false);

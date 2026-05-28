@@ -81,13 +81,15 @@ export const OrgProjectProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
     const setActiveOrg = useCallback((org: Organization) => {
         setActiveOrgState(org);
+        setActiveProjectState(null);
+        setProjects([]);
         localStorage.setItem(LS_ORG_KEY, org.id);
+        localStorage.removeItem(LS_PROJ_KEY);
         fetchProjects(org).then(projs => {
             setProjects(projs);
             const first = projs[0] ?? null;
             setActiveProjectState(first);
             if (first) localStorage.setItem(LS_PROJ_KEY, first.id);
-            else localStorage.removeItem(LS_PROJ_KEY);
         }).catch(console.error);
     }, [fetchProjects]);
 

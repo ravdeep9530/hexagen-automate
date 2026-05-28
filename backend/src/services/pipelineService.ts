@@ -2,7 +2,7 @@ import { Pool } from 'pg';
 import { promises as fs } from 'fs';
 import * as path from 'path';
 import { implementSprint, finalizeImplementation, type SprintTicket } from './agentImplementationService';
-import { getDeployment, readDeploymentLog, deployRun, getSourceTree, getSourceFile, markDeploymentAutoFixing, type Deployment } from './deploymentService';
+import { getDeployment, readDeploymentLog, deployRun, getSourceTree, getSourceFile, markDeploymentAutoFixing, listImplementationVersions, type Deployment } from './deploymentService';
 import { callAzureChat, isAzureConfigured } from '../config/azure';
 import { requirementsService } from './requirementsService';
 
@@ -296,17 +296,45 @@ export class PipelineService {
             throw new Error('cannot rerun implementation: sprint stage has no tickets cached');
         }
 
-        // Reset the implementation row so the SSE stream shows it as running
-        // again. Clear artifact_json so prior outcomes don't linger in the UI.
+        // ── Archive current sprint + source before clearing ──────────────────
+        const curImpl = await pool.query(
+            `SELECT artifact_json FROM pipeline_stage_status WHERE run_id = $1 AND stage = 'implementation'`,
+            [run_id]
+        );
+        const curArtifact = curImpl.rows[0]?.artifact_json ?? {};
+        const curSprint = curArtifact.sprint;
+        const existingHistory: unknown[] = Array.isArray(curArtifact.sprint_history) ? curArtifact.sprint_history : [];
+        const archiveVersion = existingHistory.length + 1;
+
+        let newHistory = existingHistory;
+        if (curSprint) {
+            const DEPLOYMENTS_ROOT = process.env.DEPLOYMENTS_ROOT || '/app/deployments';
+            const srcDir = path.join(DEPLOYMENTS_ROOT, run_id, 'source');
+            const archiveDir = path.join(DEPLOYMENTS_ROOT, run_id, `source_v${archiveVersion}`);
+            // Best-effort copy — if source doesn't exist yet, skip
+            await fs.cp(srcDir, archiveDir, { recursive: true }).catch(() => {});
+            newHistory = [
+                ...existingHistory,
+                {
+                    version: archiveVersion,
+                    archived_at: new Date().toISOString(),
+                    sprint: curSprint,
+                    source_dir: `source_v${archiveVersion}`,
+                },
+            ];
+        }
+
+        // Reset the implementation row. Preserve sprint_history so previous
+        // versions remain accessible while the new run is in progress.
         await pool.query(
             `UPDATE pipeline_stage_status
                SET status = 'running',
                    started_at = now(),
                    finished_at = NULL,
                    error = NULL,
-                   artifact_json = '{}'::jsonb
+                   artifact_json = jsonb_build_object('sprint_history', $2::jsonb)
              WHERE run_id = $1 AND stage = 'implementation'`,
-            [run_id]
+            [run_id, JSON.stringify(newHistory)]
         );
 
         // Fire-and-forget: implementSprint can run for minutes. Progress is

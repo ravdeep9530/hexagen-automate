@@ -1,6 +1,7 @@
 import React from 'react';
 import { I } from '../icons';
 import { useIntegrations, useNotificationSettings, IntegrationConnection, NotificationSettings, NotificationTrigger, NotificationContextField, TeamsNotifConfig, EmailNotifConfig } from '../api/agentApi';
+import { useOrgProject } from '../contexts/OrgProjectContext';
 
 const GithubLogo: React.FC<{ size?: number }> = ({ size = 22 }) => (
   <svg width={size} height={size} viewBox="0 0 24 24" fill="#0d1117">
@@ -338,7 +339,8 @@ const NotifChannelCard: React.FC<{
 // ── Main Screen ───────────────────────────────────────────────────────────────
 
 export const IntegrationsScreen: React.FC = () => {
-  const { connections, loading, createConnection, deleteConnection, testConnection } = useIntegrations();
+  const { activeOrg } = useOrgProject();
+  const { connections, loading, createConnection, deleteConnection, testConnection } = useIntegrations(activeOrg?.id);
   const { settings: notifSettings, save: saveNotif, test: testNotif } = useNotificationSettings();
   const [showForm, setShowForm] = React.useState(false);
   const [kind, setKind]         = React.useState<'github' | 'sharepoint'>('github');

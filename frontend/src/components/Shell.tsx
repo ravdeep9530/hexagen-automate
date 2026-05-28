@@ -11,7 +11,7 @@ const NAV = [
   { group: 'Workspace', items: [
     { key: 'orgs',        label: 'Organizations',   icon: 'Layers' },
     { key: 'projects',    label: 'Projects',        icon: 'Folder' },
-    { key: 'dashboard',   label: 'Overview',        icon: 'Dashboard' },
+    { key: 'overview',    label: 'Overview',        icon: 'Dashboard' },
     { key: 'pipelines',   label: 'SDLC Pipelines',  icon: 'Pipeline',     count: 12 },
     { key: 'requirements',label: 'Requirements',    icon: 'Requirements' },
     { key: 'sprint',      label: 'Sprint Planning', icon: 'Sprint' },
@@ -61,7 +61,11 @@ export const Sidebar: React.FC<SidebarProps> = ({ route, onRoute }) => {
             if (proj) setActiveProject(proj);
           }}
         >
-          {projects.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+          {projects.map(p => {
+            const status = (p.config as any)?.analysis_status as string | undefined;
+            const syncing = status === 'pending' || status === 'running';
+            return <option key={p.id} value={p.id}>{syncing ? `⟳ ${p.name}` : p.name}</option>;
+          })}
           {projects.length === 0 && <option value="">No projects</option>}
         </select>
       </div>

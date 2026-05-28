@@ -11,6 +11,7 @@ import { IntegrationsScreen } from './screens/IntegrationsScreen';
 import { StubScreen } from './screens/StubScreen';
 import { OrgsScreen } from './screens/OrgsScreen';
 import { ProjectsScreen } from './screens/ProjectsScreen';
+import { ProjectOverviewScreen } from './screens/ProjectOverviewScreen';
 import { OrgProjectProvider, useOrgProject } from './contexts/OrgProjectContext';
 
 // Real feature screens — wired to live API hooks
@@ -25,7 +26,7 @@ import { GitHubPRReview }     from './features/integrations/GitHubPRReview';
 const NAV_ITEMS = [
   { key: 'orgs',        label: 'Organizations' },
   { key: 'projects',    label: 'Projects' },
-  { key: 'dashboard',   label: 'Overview' },
+  { key: 'overview',    label: 'Overview' },
   { key: 'pipelines',   label: 'SDLC Pipelines' },
   { key: 'requirements',label: 'Requirements' },
   { key: 'sprint',      label: 'Sprint Planning' },
@@ -40,7 +41,7 @@ const NAV_ITEMS = [
 
 function AppInner() {
   const [route, setRoute] = React.useState<Route>({ screen: 'pipelines' });
-  const { setActiveOrg, setActiveProject } = useOrgProject();
+  const { setActiveOrg, setActiveProject, activeOrg, activeProject } = useOrgProject();
   const [teamsBanner, setTeamsBanner] = React.useState<{ decision: string; stage: string } | null>(null);
 
   // Handle deep-links from Teams approval cards: ?teams_nav=detail&run_id=...&stage=...&teams_decided=...
@@ -70,7 +71,15 @@ function AppInner() {
       case 'projects':
         return (
           <ProjectsScreen
-            onSelectProject={proj => { setActiveProject(proj); setRoute({ screen: 'pipelines' }); }}
+            onSelectProject={proj => { setActiveProject(proj); setRoute({ screen: 'overview' }); }}
+          />
+        );
+      case 'overview':
+        return (
+          <ProjectOverviewScreen
+            projectId={activeProject?.id ?? ''}
+            orgId={activeOrg?.id ?? ''}
+            onOpenPipelines={() => setRoute({ screen: 'pipelines' })}
           />
         );
       case 'pipelines':
@@ -154,6 +163,7 @@ function AppInner() {
   const crumbs = (() => {
     const navItem = NAV_ITEMS.find(i => i.key === route.screen);
     const home = { label: 'Workspace', onClick: () => setRoute({ screen: 'pipelines' }) };
+    if (route.screen === 'overview') return [home, { label: 'Overview' }];
     if (route.screen === 'new')     return [home, { label: 'SDLC Pipelines', onClick: () => setRoute({ screen: 'pipelines' }) }, { label: 'New pipeline' }];
     if (route.screen === 'detail')  return [home, { label: 'SDLC Pipelines', onClick: () => setRoute({ screen: 'pipelines' }) }, { label: route.runId || '…' }];
     if (route.screen === 'planner') return [home, { label: 'SDLC Pipelines', onClick: () => setRoute({ screen: 'pipelines' }) }, { label: route.runId || '…', onClick: () => setRoute({ screen: 'detail', runId: route.runId }) }, { label: 'Plan Editor' }];

@@ -326,38 +326,42 @@ export interface SharePointDocument {
 }
 
 // Integration Hooks
-export const useIntegrations = () => {
+export const useIntegrations = (orgId?: string | null) => {
     const [connections, setConnections] = useState<IntegrationConnection[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const fetchConnections = useCallback(async () => {
+        if (!orgId) { setConnections([]); return; }
         setLoading(true);
         try {
-            const response = await axios.get(`${API_URL}/integrations`);
+            const response = await axios.get(`${API_URL}/orgs/${orgId}/integrations`);
             setConnections(response.data);
         } catch (err) {
             setError('Failed to fetch integrations');
         } finally {
             setLoading(false);
         }
-    }, []);
+    }, [orgId]);
 
     const createConnection = useCallback(async (connection: Omit<IntegrationConnection, 'id' | 'createdAt'>) => {
-        const response = await axios.post(`${API_URL}/integrations`, connection);
+        if (!orgId) throw new Error('No active organization');
+        const response = await axios.post(`${API_URL}/orgs/${orgId}/integrations`, connection);
         setConnections(prev => [response.data, ...prev]);
         return response.data;
-    }, []);
+    }, [orgId]);
 
     const deleteConnection = useCallback(async (id: string) => {
-        await axios.delete(`${API_URL}/integrations/${id}`);
+        if (!orgId) throw new Error('No active organization');
+        await axios.delete(`${API_URL}/orgs/${orgId}/integrations/${id}`);
         setConnections(prev => prev.filter(c => c.id !== id));
-    }, []);
+    }, [orgId]);
 
     const testConnection = useCallback(async (id: string) => {
-        const response = await axios.post(`${API_URL}/integrations/${id}/test`);
+        if (!orgId) throw new Error('No active organization');
+        const response = await axios.post(`${API_URL}/orgs/${orgId}/integrations/${id}/test`);
         return response.data as { success: boolean; message: string };
-    }, []);
+    }, [orgId]);
 
     useEffect(() => {
         fetchConnections();

@@ -220,10 +220,10 @@ export function usePipelineList(autoRefreshMs = 0, projectId?: string) {
     const [runs, setRuns] = useState<PipelineRunSummary[]>([]);
     const [loading, setLoading] = useState(false);
     const fetchRuns = useCallback(async () => {
+        if (!projectId) { setRuns([]); return; }
         setLoading(true);
         try {
-            const params = new URLSearchParams({ limit: '100' });
-            if (projectId) params.set('project_id', projectId);
+            const params = new URLSearchParams({ limit: '100', project_id: projectId });
             const r = await axios.get(`${API_URL}/pipelines?${params}`);
             setRuns(r.data);
         } finally {
@@ -363,13 +363,39 @@ export function useCreatePRs() {
     return { createPRs, loading, error };
 }
 
+export interface ImplementationVersion {
+    version: number;
+    label: string;
+    archived_at: string | null;
+    source_dir: string;
+    outcomes_count: number;
+    succeeded_count: number;
+    is_current: boolean;
+}
+
+export function useImplementationVersions(runId: string | null) {
+    const [versions, setVersions] = useState<ImplementationVersion[]>([]);
+    const [loading, setLoading] = useState(false);
+    const fetch = useCallback(async () => {
+        if (!runId) return;
+        setLoading(true);
+        try {
+            const r = await axios.get<{ versions: ImplementationVersion[] }>(`${API_URL}/pipelines/${runId}/implementation/versions`);
+            setVersions(r.data.versions ?? []);
+        } catch { /* non-fatal */ }
+        finally { setLoading(false); }
+    }, [runId]);
+    useEffect(() => { fetch(); }, [fetch]);
+    return { versions, loading, refetch: fetch };
+}
+
 export function useDeployControls() {
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
-    const deploy = useCallback(async (runId: string) => {
+    const deploy = useCallback(async (runId: string, version?: number) => {
         setLoading(true);
         try {
-            const r = await axios.post(`${API_URL}/pipelines/${runId}/deploy`);
+            const r = await axios.post(`${API_URL}/pipelines/${runId}/deploy`, version != null ? { version } : {});
             setError(null);
             return r.data as Deployment;
         } catch (e) {

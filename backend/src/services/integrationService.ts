@@ -148,10 +148,10 @@ class IntegrationService {
         }
     }
 
-    async getConnections(): Promise<IntegrationConnection[]> {
-        const result = await pool.query(
-            'SELECT * FROM integration_connections ORDER BY created_at DESC'
-        );
+    async getConnections(orgId?: string): Promise<IntegrationConnection[]> {
+        const result = orgId
+            ? await pool.query('SELECT * FROM integration_connections WHERE org_id = $1 ORDER BY created_at DESC', [orgId])
+            : await pool.query('SELECT * FROM integration_connections ORDER BY created_at DESC');
         return result.rows.map(this.mapConnection);
     }
 
@@ -163,11 +163,11 @@ class IntegrationService {
         return result.rows[0] ? this.mapConnection(result.rows[0]) : null;
     }
 
-    async createConnection(connection: Omit<IntegrationConnection, 'id' | 'createdAt'>): Promise<IntegrationConnection> {
+    async createConnection(connection: Omit<IntegrationConnection, 'id' | 'createdAt'>, orgId: string): Promise<IntegrationConnection> {
         const result = await pool.query(
-            `INSERT INTO integration_connections (type, name, config, status)
-             VALUES ($1, $2, $3, $4) RETURNING *`,
-            [connection.type, connection.name, JSON.stringify(connection.config), connection.status]
+            `INSERT INTO integration_connections (type, name, config, status, org_id)
+             VALUES ($1, $2, $3, $4, $5) RETURNING *`,
+            [connection.type, connection.name, JSON.stringify(connection.config), connection.status, orgId]
         );
         return this.mapConnection(result.rows[0]);
     }
@@ -190,10 +190,10 @@ class IntegrationService {
         return result.rows[0] ? this.mapConnection(result.rows[0]) : null;
     }
 
-    async deleteConnection(id: string): Promise<boolean> {
+    async deleteConnection(id: string, orgId: string): Promise<boolean> {
         const result = await pool.query(
-            'DELETE FROM integration_connections WHERE id = $1',
-            [id]
+            'DELETE FROM integration_connections WHERE id = $1 AND org_id = $2',
+            [id, orgId]
         );
         return (result.rowCount ?? 0) > 0;
     }
