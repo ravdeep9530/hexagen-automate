@@ -873,7 +873,7 @@ export function StageCard({ index, stage, runId, status, onApprove, onReject, on
                                                 ■ Stop
                                             </button>
                                         )}
-                                        {building ? (
+                                        {dStatus === 'installing' ? (
                                             <span style={{ fontSize: 11, color: tokens.color.textMuted }}>
                                                 <span className="pl-pulse" style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: tokens.color.warning, marginRight: 5 }} />
                                                 Building container…
