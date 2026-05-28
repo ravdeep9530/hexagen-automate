@@ -1,0 +1,40 @@
+{
+  "skipDangerousModePermissionPrompt": true,
+  "permissions": {
+    "defaultMode": "bypassPermissions",
+    "allow": [
+      "Bash(curl -sI http://localhost:5678/workflow/UGzLMeO04q4sbYRP/executions)",
+      "Bash(curl -sI \"http://localhost:8080/app/8ff37dfe-f1c4-45a6-bc77-a47bff76399d/logs\")",
+      "Bash(docker exec *)",
+      "Bash(curl -sL http://localhost:5678/)",
+      "Bash(curl -sI http://localhost:5678/signin)",
+      "Bash(curl -sv http://localhost:5678/)",
+      "Bash(python3 -m json.tool)",
+      "Bash(python3 build_workflows.py)",
+      "Bash(N8N_PASSWORD='Ravdeep?12' python3 import_workflows.py)",
+      "Bash(python3 -c ' *)",
+      "Bash(curl -s -c /tmp/n8n_cookie.txt -X POST http://localhost:5678/rest/login -H 'Content-Type: application/json' -d '{\"emailOrUsername\":\"ravdeep.singh@carechain.app\",\"password\":\"Ravdeep?12\"}')",
+      "Bash(python3 -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\('login ok' if 'data' in r else r\\)\")",
+      "Bash(curl -s -c /tmp/n8n_cookie.txt -X POST http://localhost:5678/rest/login -H 'Content-Type: application/json' -d '{\"emailOrLdapLoginId\":\"ravdeep.singh@carechain.app\",\"password\":\"Ravdeep?12\"}')",
+      "Bash(curl -s -c /tmp/n8n_cookie.txt -X POST http://docker-vm-dev-01:5678/rest/login -H 'Content-Type: application/json' -d '{\"emailOrLdapLoginId\":\"ravdeeps3@gmail.com\",\"password\":\"Ravdeep?12\"}')",
+      "Bash(python3 -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\('login ok, user=' + r['data']['email'] if 'data' in r else r\\)\")",
+      "Bash(python3 -c \"import sys,json; r=json.load\\(sys.stdin\\); print\\('deactivated:', r.get\\('data',{}\\).get\\('active'\\), r.get\\('message',''\\)\\)\")",
+      "Bash(python3 -c \"import sys,json; r=json.load\\(sys.stdin\\); d=r.get\\('data',{}\\); print\\('active:', d.get\\('active'\\), '| error:', r.get\\('message',''\\)\\)\")",
+      "Bash(curl -s -X POST http://localhost:5000/api/github/create-pr -H 'Content-Type: application/json' -d '{\"repo\":\"ravdeep9530/hexagen-automate-photo-croping-app\",\"implementation_json\":{\"branch_name\":\"test-probe\",\"commit_message\":\"test\",\"files_changed\":[],\"pr_title\":\"Test probe\",\"pr_body_markdown\":\"Probe\"}}')",
+      "Bash(curl -s http://localhost:5000/api/pipelines/f003d541-f12c-4a79-8ea6-a19ce618f415)",
+      "Bash(curl -s -X POST http://docker-vm-dev-01:5678/webhook-waiting/83?signature=cf5bbe8ad06495c1cfc8ad4e78273fc0b01f590a8eeffe0b73a96dc793986f58 -H 'Content-Type: application/json' -d '{\"approved\":true}')",
+      "Bash(cd /home/adminuser && docker ps --format \"table {{.Names}}\\\\t{{.Status}}\\\\t{{.Ports}}\" | grep -v \"^NAMES\")",
+      "Read(//home/adminuser/**)",
+      "Bash(curl -s http://localhost:8080/v1/parameters -H \"Authorization: Bearer app-o2H3jYbENhKb1n7REEuABuGg\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('system_parameters', d.get\\('user_input_form', {}\\)\\), indent=2\\)[:500]\\)\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\)[0]; env=d.get\\('Config',{}\\).get\\('Env',[]\\); [print\\(e\\) for e in env if any\\(k in e for k in ['DB_','N8N_DB','POSTGRES']\\)]\")",
+      "Bash(docker restart *)",
+      "Bash(curl -s -X POST http://docker-vm-dev-01:5678/webhook/pipeline/start -H 'Content-Type: application/json' -d '{\"repo\":\"ravdeep9530/hexagen-automate-photo-croping-app\",\"raw_request\":\"test\",\"requester_id\":\"test\"}')",
+      "Bash(curl -s http://localhost:5000/api/pipelines -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:5000/api/pipelines/b32455c6-95a8-484e-aba3-31d60e3c78a2)",
+      "Bash(curl -s -X POST http://localhost:5000/api/pipelines/b32455c6-95a8-484e-aba3-31d60e3c78a2/stages/requirements/approve -H 'Content-Type: application/json' -d '{\"approved\": true}')",
+      "Bash(curl -s -X POST http://localhost:5000/api/pipelines -H 'Content-Type: application/json' -d '{ *)",
+      "Bash(curl -s http://localhost:5000/api/pipelines/c545bc3b-2282-4987-97c8-167c0489a415)"
+    ]
+  }
+}

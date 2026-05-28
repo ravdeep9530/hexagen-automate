@@ -1,0 +1,105 @@
+services:
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3001:80"
+    environment:
+      - REACT_APP_API_URL=http://backend:5000
+    depends_on:
+      - backend
+    networks:
+      - agentic-net
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "5000:5000"
+      # NOTE: 4100-4199 are NOT mapped here anymore. Generated apps are deployed
+      # as individual Docker containers with their own -p host:container bindings.
+    env_file:
+      - ./backend/.env
+    environment:
+      - DB_HOST=postgres
+      - DB_USER=postgres
+      - DB_PASSWORD=postgres
+      - DB_NAME=agentic
+      - N8N_PIPELINE_WEBHOOK_URL=http://n8n:5678/webhook/pipeline/start
+      - SANDBOX_NPM_CACHE=/var/cache/agent-npm
+      - DEPLOYMENTS_ROOT=/app/deployments
+      - DEPLOY_PORT_START=4100
+      - DEPLOY_PORT_END=4199
+      # Hostname shown in the deployment URL (UI link target). Set to the host
+      # reachable from your browser — e.g. localhost on a dev laptop, or the
+      # VM's DNS name when developing remotely.
+      - DEPLOY_PUBLIC_HOST=docker-vm-dev-01
+      # When true (default), the agent loop validates + tests implementations
+      # locally without pushing to GitHub. The user opts in to PR creation via
+      # the "Create PRs" button. Set to 'false' to restore auto-PR behavior.
+      - DEFER_PR_CREATION=true
+      # SharePoint creds (TENANT/CLIENT/SECRET/DRIVE/FOLDER) come from
+      # ./backend/.env via env_file above. Don't redeclare here — explicit
+      # `environment:` entries override env_file, and an empty shell expansion
+      # like ${SHAREPOINT_*:-} would blank them out.
+    volumes:
+      # Shared npm cache for the agent sandbox runner. Survives container
+      # rebuilds so we don't re-download deps every attempt.
+      - agent_npm_cache:/var/cache/agent-npm
+      # Curated scaffolds the agent stamps as the first PR for new projects.
+      # Read-only — the backend only copies files OUT.
+      - ./templates:/app/templates
+      # Persisted source trees for "Deploy locally": each run gets its own
+      # subdirectory. Survives container rebuilds.
+      - agent_deployments:/app/deployments
+      # Docker socket so the backend can build/run/stop generated-app containers.
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      - postgres
+    networks:
+      - agentic-net
+
+  n8n-frame-proxy:
+    image: nginx:alpine
+    ports:
+      - "5679:80"
+    volumes:
+      - ./infra/iframe-proxy/n8n.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - agentic-net
+    restart: unless-stopped
+
+  dify-frame-proxy:
+    image: nginx:alpine
+    ports:
+      - "8081:80"
+    volumes:
+      - ./infra/iframe-proxy/dify.conf:/etc/nginx/conf.d/default.conf:ro
+    networks:
+      - agentic-net
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:13
+    environment:
+      - POSTGRES_PASSWORD=postgres
+      - POSTGRES_DB=agentic
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infra/sql/000_init_databases.sh:/docker-entrypoint-initdb.d/000_init_databases.sh:ro
+    networks:
+      - agentic-net
+
+volumes:
+  postgres_data:
+  agent_npm_cache:
+  agent_deployments:
+
+networks:
+  agentic-net:
+    external: true
+    name: agentic-net

@@ -1,0 +1,734 @@
+{
+  "name": "stage_template",
+  "nodes": [
+    {
+      "id": "c63912f4-22d6-40ad-863d-848fd692da79",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "2247823b-70ce-4228-ae0b-183608987cc1",
+      "name": "Lookup Dify app key",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT app_id, api_key FROM dify_app_keys WHERE stage = $1",
+        "options": {
+          "queryReplacement": "={{ $json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "1344ea45-1a87-43b3-8c07-0d4238cc2ff5",
+      "name": "Mark stage running",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipeline_stage_status (run_id, stage, status, started_at, current_activity) VALUES ($1::uuid, $2, 'running', now(), $3) ON CONFLICT (run_id, stage) DO UPDATE SET status='running', started_at=now(), current_activity=$3",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ 'Calling Dify (gpt-5.5)\u2026' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "2c20f8e1-66f3-4131-a6cc-45b35412436b",
+      "name": "Call Dify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://dify-nginx/v1/chat-messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Lookup Dify app key').item.json.api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  inputs: $('Start').item.json.inputs || {},\n  query: $('Start').item.json.query + (($('Start').item.json.inputs && $('Start').item.json.inputs.design_preferences && $('Start').item.json.inputs.design_preferences !== 'null') ? ('\\n\\ndesign_preferences: ' + $('Start').item.json.inputs.design_preferences) : ''),\n  response_mode: 'blocking',\n  user: 'n8n-' + $('Start').item.json.run_id\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      }
+    },
+    {
+      "id": "b9a5c7b3-a7c7-4f1c-8634-4421f132744f",
+      "name": "Clean + parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $input.item.json;\nlet answer = (body.answer || '').toString();\n// strip DeepSeek <think>...</think> reasoning if present\nanswer = answer.replace(/<think>[\\s\\S]*?<\\/think>\\s*/g, '').trim();\n// strip leading ```json fences if Kimi wraps the output\nanswer = answer.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nlet parsed = null;\ntry { parsed = JSON.parse(answer); } catch (e) { /* leave null */ }\nreturn { json: { answer, parsed, dify_message_id: body.id || body.message_id || null, dify_conversation_id: body.conversation_id || null, usage: (body.metadata && body.metadata.usage) || null } };\n"
+      }
+    },
+    {
+      "id": "2e7decab-d707-4f94-bc86-ac1a8ee7d328",
+      "name": "Create GitHub PR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://agentic-platform-local-backend-1:5000/api/agent/implement-sprint",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  stage_name: $('Start').item.json.stage_name,\n  run_id: $('Start').item.json.run_id,\n  repo: ($('Start').item.json.inputs && $('Start').item.json.inputs.repo_full_name) || null,\n  sprint_json: ($('Start').item.json.inputs && $('Start').item.json.inputs.sprint_json) || null,\n  design_excerpt: ($('Start').item.json.inputs && $('Start').item.json.inputs.design_excerpt) || null,\n  tech_stack: ($('Start').item.json.inputs && $('Start').item.json.inputs.tech_stack) || null\n}) }}",
+        "options": {
+          "timeout": 1200000
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "0be3bc01-e543-4cb2-a9d6-c4cad0f155fc",
+      "name": "Get SharePoint token",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "=https://login.microsoftonline.com/{{ $env.SHAREPOINT_TENANT_ID }}/oauth2/v2.0/token",
+        "sendBody": true,
+        "contentType": "form-urlencoded",
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "grant_type",
+              "value": "client_credentials"
+            },
+            {
+              "name": "client_id",
+              "value": "={{ $env.SHAREPOINT_CLIENT_ID }}"
+            },
+            {
+              "name": "client_secret",
+              "value": "={{ $env.SHAREPOINT_CLIENT_SECRET }}"
+            },
+            {
+              "name": "scope",
+              "value": "https://graph.microsoft.com/.default"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 15000
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "b4c38e1c-d986-479d-b074-40c7344df983",
+      "name": "Upload to SharePoint",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "method": "PUT",
+        "url": "=https://graph.microsoft.com/v1.0/drives/{{ $env.SHAREPOINT_DRIVE_ID }}/root:/{{ $env.SHAREPOINT_FOLDER }}/{{ $('Start').item.json.run_id }}/{{ $('Start').item.json.stage_name }}.json:/content",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Get SharePoint token').item.json.access_token }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ JSON.stringify({  stage: $('Start').item.json.stage_name,  run_id: $('Start').item.json.run_id,  answer: $('Clean + parse').item.json.answer,  parsed: $('Clean + parse').item.json.parsed,  usage: $('Clean + parse').item.json.usage}) }}",
+        "options": {
+          "timeout": 30000
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "id": "d7e8f901-a2b3-4c5d-6e7f-890123456789",
+      "name": "Upload doc to backend",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2040,
+        300
+      ],
+      "continueOnFail": true,
+      "parameters": {
+        "method": "POST",
+        "url": "=http://agentic-platform-local-backend-1:5000/api/pipelines/{{ $('Start').item.json.run_id }}/stages/{{ $('Start').item.json.stage_name }}/upload-doc",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify($('Clean + parse').item.json.parsed || {}) }}",
+        "options": {
+          "timeout": 120000
+        }
+      }
+    },
+    {
+      "id": "6225e0e2-5902-4b9e-bbdf-8a4420cf9c3b",
+      "name": "Write awaiting_approval",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status='awaiting_approval', dify_run_id=$3, artifact_json=$4::jsonb, resume_webhook_url=$5, artifact_url=$6, current_activity=NULL, finished_at=now() WHERE run_id=$1::uuid AND stage=$2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ $('Clean + parse').item.json.dify_message_id }},={{ JSON.stringify({  answer: $('Clean + parse').item.json.answer,  parsed: $('Clean + parse').item.json.parsed,  usage: $('Clean + parse').item.json.usage,  sprint: $('Create GitHub PR').item.json && $('Create GitHub PR').item.json.outcomes ? $('Create GitHub PR').item.json : null}) }},={{ $execution.resumeUrl }},={{ ($('Upload doc to backend').item.json && $('Upload doc to backend').item.json.artifact_url) || ($('Create GitHub PR').item.json && $('Create GitHub PR').item.json.scaffold && $('Create GitHub PR').item.json.scaffold.pr_url) || ($('Create GitHub PR').item.json && Array.isArray($('Create GitHub PR').item.json.pr_urls) && $('Create GitHub PR').item.json.pr_urls[0]) || ($('Upload to SharePoint').item.json && $('Upload to SharePoint').item.json.webUrl ? $('Upload to SharePoint').item.json.webUrl : null) }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "309199c7-d154-4d8a-82fb-f2d4a950ecd0",
+      "name": "Wait for approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        2400,
+        300
+      ],
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {},
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "resumeAmount": 24,
+        "resumeUnit": "hours"
+      }
+    },
+    {
+      "id": "68cb1182-bc9b-4e31-aac3-d0e73719cde6",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2640,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "4182805e-80a8-4f2f-93ab-d4347bf5ec10",
+              "leftValue": "={{ $json.body.decision || $json.decision }}",
+              "rightValue": "approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "3c08bc7d-a626-4876-9f3c-279d25a35ca5",
+      "name": "Mark approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2880,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status='approved', current_activity=NULL WHERE run_id=$1::uuid AND stage=$2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "2298629b-e0fc-4da1-b50d-abeac7fc9bc4",
+      "name": "Mark rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2880,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status='rejected', current_activity=NULL, error=$3 WHERE run_id=$1::uuid AND stage=$2; UPDATE pipeline_runs SET status='rejected' WHERE run_id=$1::uuid",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ ($json.body && $json.body.reason) || $json.reason || '' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "aa001122-aabb-ccdd-eeff-000111222333",
+      "name": "Check stage status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 500],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status, artifact_json FROM pipeline_stage_status WHERE run_id = $1::uuid AND stage = $2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "bb112233-bbcc-ddee-ff00-111222333444",
+      "name": "Already approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 500],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "cr-skip-check-001",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "approved",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "cc223344-ccdd-eeff-0011-222333444555",
+      "name": "Return pre-seeded artifact",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 500],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "cr-skip-stage",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "cr-skip-status",
+              "name": "status",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "cr-skip-parsed",
+              "name": "parsed",
+              "value": "={{ $('Check stage status').item.json.artifact_json && $('Check stage status').item.json.artifact_json.parsed ? $('Check stage status').item.json.artifact_json.parsed : $('Check stage status').item.json.artifact_json }}",
+              "type": "object"
+            },
+            {
+              "id": "cr-skip-answer",
+              "name": "answer",
+              "value": "={{ ($('Check stage status').item.json.artifact_json && $('Check stage status').item.json.artifact_json.answer) || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "27449a37-fd67-4c7f-bbf9-2456262482ef",
+      "name": "Return artifact",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3120,
+        180
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "b25c9c20-8b83-47d0-99aa-c59160ef6db9",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "ae1ad705-462a-470a-9052-f80a30161752",
+              "name": "status",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "2e0f5c80-5d5a-48b0-bce1-cffa65930083",
+              "name": "parsed",
+              "value": "={{ $('Clean + parse').item.json.parsed }}",
+              "type": "object"
+            },
+            {
+              "id": "4bce2da3-906c-4d58-ae20-d2346a696dff",
+              "name": "answer",
+              "value": "={{ $('Clean + parse').item.json.answer }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "92967f08-05f6-44cb-bdae-0466c1f13d6d",
+      "name": "Return rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        3120,
+        420
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "988f284f-e209-47a9-883c-c333c96945a9",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "d4c86b0b-ba46-4b2a-8bd3-a970338f500b",
+              "name": "status",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "c1b4c41a-4920-419b-a439-0eba51e799e9",
+              "name": "reason",
+              "value": "={{ ($('Approved?').item.json.body && $('Approved?').item.json.body.reason) || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Check stage status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check stage status": {
+      "main": [
+        [
+          {
+            "node": "Already approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already approved?": {
+      "main": [
+        [
+          {
+            "node": "Return pre-seeded artifact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Dify app key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return pre-seeded artifact": {
+      "main": []
+    },
+    "Lookup Dify app key": {
+      "main": [
+        [
+          {
+            "node": "Mark stage running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark stage running": {
+      "main": [
+        [
+          {
+            "node": "Call Dify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Dify": {
+      "main": [
+        [
+          {
+            "node": "Clean + parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean + parse": {
+      "main": [
+        [
+          {
+            "node": "Create GitHub PR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create GitHub PR": {
+      "main": [
+        [
+          {
+            "node": "Get SharePoint token",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get SharePoint token": {
+      "main": [
+        [
+          {
+            "node": "Upload to SharePoint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload to SharePoint": {
+      "main": [
+        [
+          {
+            "node": "Upload doc to backend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Upload doc to backend": {
+      "main": [
+        [
+          {
+            "node": "Write awaiting_approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write awaiting_approval": {
+      "main": [
+        [
+          {
+            "node": "Wait for approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark approved": {
+      "main": [
+        [
+          {
+            "node": "Return artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark rejected": {
+      "main": [
+        [
+          {
+            "node": "Return rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "description": "Runs ONE SDLC stage: Dify call \u2192 status writes \u2192 HITL wait \u2192 branch on approval"
+  }
+}

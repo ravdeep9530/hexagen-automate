@@ -1,0 +1,587 @@
+{
+  "name": "requirements_stage_template",
+  "nodes": [
+    {
+      "id": "e023ca8c-1e44-4c52-ba9a-b5e7859ae628",
+      "name": "Start",
+      "type": "n8n-nodes-base.executeWorkflowTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        240,
+        300
+      ],
+      "parameters": {
+        "inputSource": "passthrough"
+      }
+    },
+    {
+      "id": "519f3627-9b6e-457b-a0d5-7f871ca82e42",
+      "name": "Lookup Dify app key",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        480,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT app_id, api_key FROM dify_app_keys WHERE stage = $1",
+        "options": {
+          "queryReplacement": "={{ $json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "d93a1a08-1228-48bc-8b57-48ed838a4143",
+      "name": "Mark stage running",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        720,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipeline_stage_status (run_id, stage, status, started_at, current_activity) VALUES ($1::uuid, $2, 'running', now(), $3) ON CONFLICT (run_id, stage) DO UPDATE SET status='running', started_at=now(), current_activity=$3",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ 'Calling Dify (gpt-5.5)\u2026' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "5fc96051-8b01-4ff7-995f-320bedfd52c8",
+      "name": "Call Dify",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        960,
+        300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "http://dify-nginx/v1/chat-messages",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "=Bearer {{ $('Lookup Dify app key').item.json.api_key }}"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "contentType": "json",
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({\n  inputs: $('Start').item.json.inputs || {},\n  query: $('Start').item.json.query + (($('Start').item.json.inputs && $('Start').item.json.inputs.design_preferences && $('Start').item.json.inputs.design_preferences !== 'null') ? ('\\n\\ndesign_preferences: ' + $('Start').item.json.inputs.design_preferences) : ''),\n  response_mode: 'blocking',\n  user: 'n8n-' + $('Start').item.json.run_id\n}) }}",
+        "options": {
+          "timeout": 300000
+        }
+      }
+    },
+    {
+      "id": "c43f1d09-ca34-4612-b948-09cb17638b9e",
+      "name": "Clean + parse",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1200,
+        300
+      ],
+      "parameters": {
+        "language": "javaScript",
+        "mode": "runOnceForEachItem",
+        "jsCode": "const body = $input.item.json;\nlet answer = (body.answer || '').toString();\nanswer = answer.replace(/<think>[\\s\\S]*?<\\/think>\\s*/g, '').trim();\nanswer = answer.replace(/^```(?:json)?\\s*/i, '').replace(/```\\s*$/, '').trim();\nlet parsed = null;\ntry { parsed = JSON.parse(answer); } catch (e) { /* leave null */ }\nconst openQs = (parsed && Array.isArray(parsed.open_questions)) ? parsed.open_questions : [];\nreturn { json: {\n  answer, parsed,\n  next_status: openQs.length > 0 ? 'awaiting_clarification' : 'awaiting_approval',\n  dify_message_id: body.id || body.message_id || null,\n  dify_conversation_id: body.conversation_id || null,\n  usage: (body.metadata && body.metadata.usage) || null\n} };\n"
+      }
+    },
+    {
+      "id": "66866fce-c959-4c49-b166-3d3f90e9d9c7",
+      "name": "Write stage status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        1440,
+        300
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status=$3, dify_run_id=$4, dify_conversation_id=$5, artifact_json=$6::jsonb, resume_webhook_url=$7, current_activity=NULL, finished_at=now() WHERE run_id=$1::uuid AND stage=$2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ $('Clean + parse').item.json.next_status }},{{ $('Clean + parse').item.json.dify_message_id }},{{ $('Clean + parse').item.json.dify_conversation_id }},={{ JSON.stringify({  answer: $('Clean + parse').item.json.answer,  parsed: $('Clean + parse').item.json.parsed,  usage: $('Clean + parse').item.json.usage,  source: 'dify',  version: 1,  clarification_rounds: []}) }},={{ $execution.resumeUrl }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "a8aeb53f-2ef5-4d94-9f6a-d7753d3a691a",
+      "name": "Wait for approval",
+      "type": "n8n-nodes-base.wait",
+      "typeVersion": 1.1,
+      "position": [
+        1680,
+        300
+      ],
+      "parameters": {
+        "resume": "webhook",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "options": {},
+        "limitWaitTime": true,
+        "limitType": "afterTimeInterval",
+        "resumeAmount": 7,
+        "resumeUnit": "days"
+      }
+    },
+    {
+      "id": "b2049903-869a-4275-a340-37f64914d5ac",
+      "name": "Approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1920,
+        300
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose"
+          },
+          "conditions": [
+            {
+              "id": "920918a5-b98c-4287-bce3-68709c4978a1",
+              "leftValue": "={{ $json.body.decision || $json.decision }}",
+              "rightValue": "approved",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "70f74a17-a3e0-4fee-807f-a4ff7d660e80",
+      "name": "Mark approved",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status='approved', current_activity=NULL WHERE run_id=$1::uuid AND stage=$2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "f7a8b78d-df89-4188-af4b-e66f81eefe9d",
+      "name": "Mark rejected",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2160,
+        420
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_stage_status SET status='rejected', current_activity=NULL, error=$3 WHERE run_id=$1::uuid AND stage=$2; UPDATE pipeline_runs SET status='rejected' WHERE run_id=$1::uuid",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }},{{ ($json.body && $json.body.reason) || $json.reason || '' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "b84bcfb4-ed3c-4b6e-9fea-37eee3c4ef53",
+      "name": "Read latest artifact",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        2400,
+        180
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT artifact_json FROM pipeline_stage_status WHERE run_id=$1::uuid AND stage=$2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "rq001122-aabb-ccdd-eeff-000111222333",
+      "name": "Check stage status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [480, 500],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT status, artifact_json FROM pipeline_stage_status WHERE run_id = $1::uuid AND stage = $2",
+        "options": {
+          "queryReplacement": "={{ $('Start').item.json.run_id }},{{ $('Start').item.json.stage_name }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "rq112233-bbcc-ddee-ff00-111222333444",
+      "name": "Already approved?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [720, 500],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "loose" },
+          "conditions": [
+            {
+              "id": "rq-skip-check-001",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "approved",
+              "operator": { "type": "string", "operation": "equals" }
+            }
+          ],
+          "combinator": "and"
+        }
+      }
+    },
+    {
+      "id": "rq223344-ccdd-eeff-0011-222333444555",
+      "name": "Return pre-seeded artifact",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [960, 500],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "rq-skip-stage",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "rq-skip-status",
+              "name": "status",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "rq-skip-parsed",
+              "name": "parsed",
+              "value": "={{ $('Check stage status').item.json.artifact_json && $('Check stage status').item.json.artifact_json.parsed ? $('Check stage status').item.json.artifact_json.parsed : $('Check stage status').item.json.artifact_json }}",
+              "type": "object"
+            },
+            {
+              "id": "rq-skip-answer",
+              "name": "answer",
+              "value": "={{ ($('Check stage status').item.json.artifact_json && $('Check stage status').item.json.artifact_json.answer) || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "18450e2a-4c1f-4c8e-afa9-962d4df66b19",
+      "name": "Return artifact",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        180
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "2077f6e8-ca0c-44bf-8a1a-32f341ceb67c",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "f5e369d9-f2ee-4f18-af75-c8a77607e415",
+              "name": "status",
+              "value": "approved",
+              "type": "string"
+            },
+            {
+              "id": "42ef226d-529c-40c6-8eae-5a12a7225196",
+              "name": "parsed",
+              "value": "={{ $('Read latest artifact').item.json.artifact_json.parsed }}",
+              "type": "object"
+            },
+            {
+              "id": "fa2043c5-b222-4968-91fa-771dbaf6f477",
+              "name": "answer",
+              "value": "={{ $('Read latest artifact').item.json.artifact_json.answer }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "87082c27-6284-4c4c-9146-9d462273f015",
+      "name": "Return rejected",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        2640,
+        420
+      ],
+      "parameters": {
+        "mode": "manual",
+        "duplicateItem": false,
+        "assignments": {
+          "assignments": [
+            {
+              "id": "a4f3b613-95e1-47ed-b96f-adcbc6c8bbb1",
+              "name": "stage",
+              "value": "={{ $('Start').item.json.stage_name }}",
+              "type": "string"
+            },
+            {
+              "id": "603e303d-8a55-4441-9e8d-ceaafe5a2124",
+              "name": "status",
+              "value": "rejected",
+              "type": "string"
+            },
+            {
+              "id": "2d8295d7-53c3-4d47-a151-99a304b50030",
+              "name": "reason",
+              "value": "={{ ($('Approved?').item.json.body && $('Approved?').item.json.body.reason) || '' }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      }
+    }
+  ],
+  "connections": {
+    "Start": {
+      "main": [
+        [
+          {
+            "node": "Check stage status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check stage status": {
+      "main": [
+        [
+          {
+            "node": "Already approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Already approved?": {
+      "main": [
+        [
+          {
+            "node": "Return pre-seeded artifact",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Lookup Dify app key",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Return pre-seeded artifact": {
+      "main": []
+    },
+    "Lookup Dify app key": {
+      "main": [
+        [
+          {
+            "node": "Mark stage running",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark stage running": {
+      "main": [
+        [
+          {
+            "node": "Call Dify",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Call Dify": {
+      "main": [
+        [
+          {
+            "node": "Clean + parse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean + parse": {
+      "main": [
+        [
+          {
+            "node": "Write stage status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write stage status": {
+      "main": [
+        [
+          {
+            "node": "Wait for approval",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Wait for approval": {
+      "main": [
+        [
+          {
+            "node": "Approved?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Approved?": {
+      "main": [
+        [
+          {
+            "node": "Mark approved",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Mark rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark approved": {
+      "main": [
+        [
+          {
+            "node": "Read latest artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read latest artifact": {
+      "main": [
+        [
+          {
+            "node": "Return artifact",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark rejected": {
+      "main": [
+        [
+          {
+            "node": "Return rejected",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "description": "Stage 1 only: Dify intake + clarification-aware status write + HITL wait. SharePoint upload deferred to backend."
+  }
+}

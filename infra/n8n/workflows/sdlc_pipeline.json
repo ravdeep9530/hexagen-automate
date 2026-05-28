@@ -1,0 +1,399 @@
+{
+  "name": "sdlc_pipeline",
+  "nodes": [
+    {
+      "id": "3db0908f-c6c1-4387-9f4f-6d4557ca4fe4",
+      "name": "Pipeline webhook",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        240,
+        360
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "pipeline/start",
+        "responseMode": "responseNode",
+        "options": {}
+      }
+    },
+    {
+      "id": "cd0674c7-17ae-4bef-aebd-1b4d8443cb82",
+      "name": "Init pipeline_run",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        520,
+        360
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "INSERT INTO pipeline_runs (repo_full_name, raw_request, requester_id, status, current_stage) VALUES ($1, $2, $3, 'running', 'requirements') RETURNING run_id",
+        "options": {
+          "queryReplacement": "={{ $json.body.repo }},{{ $json.body.raw_request }},{{ $json.body.requester_id || 'unknown' }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    },
+    {
+      "id": "25e506a6-48e4-45d3-8982-5d2821d508b6",
+      "name": "Respond run_id",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.1,
+      "position": [
+        800,
+        200
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ JSON.stringify({ run_id: $json.run_id }) }}",
+        "options": {}
+      }
+    },
+    {
+      "id": "f8d1f42e-2357-4892-a7ec-86592df7c77d",
+      "name": "Stage 1 \u2014 requirements",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1080,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__REQUIREMENTS_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "requirements",
+            "query": "={{ 'repo: ' + $('Pipeline webhook').item.json.body.repo + '\\nraw_request: ' + $('Pipeline webhook').item.json.body.raw_request }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "aec742b8-8b34-470f-bd69-c779cba3ba29",
+      "name": "Stage 2 \u2014 optimize",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1360,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "optimize",
+            "query": "={{ JSON.stringify($('Stage 1 \u2014 requirements').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "ead6c030-6551-4224-8fad-8d0b46854237",
+      "name": "Stage 3 \u2014 plan",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1640,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "plan",
+            "query": "={{ JSON.stringify($('Stage 2 \u2014 optimize').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "3db92c80-3eee-4a18-b3d3-686730877a19",
+      "name": "Stage 4 \u2014 design",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        1920,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "design",
+            "query": "={{ JSON.stringify($('Stage 3 \u2014 plan').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "f9aa9c2a-db0b-4660-83c9-c857e3c0eb79",
+      "name": "Stage 5 \u2014 sprint",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2200,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "sprint",
+            "query": "={{ JSON.stringify($('Stage 4 \u2014 design').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "462627fe-c6b5-4434-97a6-b1089dc53794",
+      "name": "Stage 6 \u2014 implementation",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2480,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "implementation",
+            "query": "={{ JSON.stringify($('Stage 5 \u2014 sprint').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, sprint_json: JSON.stringify($('Stage 5 \u2014 sprint').item.json.parsed || {}), design_excerpt: JSON.stringify($('Stage 4 \u2014 design').item.json.parsed || {}).slice(0, 5000), tech_stack: JSON.stringify(($('Stage 4 \u2014 design').item.json.parsed || {}).tech_stack || {}), design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "0f0f4dde-7db3-432e-a37c-5f6c04c917c3",
+      "name": "Stage 7 \u2014 test",
+      "type": "n8n-nodes-base.executeWorkflow",
+      "typeVersion": 1.2,
+      "position": [
+        2760,
+        520
+      ],
+      "parameters": {
+        "source": "database",
+        "workflowId": {
+          "__rl": true,
+          "value": "__STAGE_TEMPLATE_ID__",
+          "mode": "list"
+        },
+        "workflowInputs": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "run_id": "={{ $('Init pipeline_run').item.json.run_id }}",
+            "stage_name": "test",
+            "query": "={{ JSON.stringify($('Stage 6 \u2014 implementation').item.json.parsed || {}) }}",
+            "inputs": "={{ ({ repo_full_name: $('Pipeline webhook').item.json.body.repo, implementation_summary: JSON.stringify($('Stage 6 \u2014 implementation').item.json.parsed || {}).slice(0, 2000), design_preferences: JSON.stringify($('Pipeline webhook').item.json.body.design_preferences || null) }) }}"
+          }
+        },
+        "mode": "each",
+        "options": {}
+      }
+    },
+    {
+      "id": "0564fc27-36dc-4ba1-9ea6-8595e0b823ee",
+      "name": "Mark completed",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2.5,
+      "position": [
+        3040,
+        520
+      ],
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE pipeline_runs SET status='completed', updated_at=now() WHERE run_id=$1::uuid",
+        "options": {
+          "queryReplacement": "={{ $('Init pipeline_run').item.json.run_id }}"
+        }
+      },
+      "credentials": {
+        "postgres": {
+          "id": "C4cAixNZbDnmc1ow",
+          "name": "agentic-postgres"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Pipeline webhook": {
+      "main": [
+        [
+          {
+            "node": "Init pipeline_run",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Init pipeline_run": {
+      "main": [
+        [
+          {
+            "node": "Respond run_id",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Stage 1 \u2014 requirements",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 1 \u2014 requirements": {
+      "main": [
+        [
+          {
+            "node": "Stage 2 \u2014 optimize",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 2 \u2014 optimize": {
+      "main": [
+        [
+          {
+            "node": "Stage 3 \u2014 plan",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 3 \u2014 plan": {
+      "main": [
+        [
+          {
+            "node": "Stage 4 \u2014 design",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 4 \u2014 design": {
+      "main": [
+        [
+          {
+            "node": "Stage 5 \u2014 sprint",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 5 \u2014 sprint": {
+      "main": [
+        [
+          {
+            "node": "Stage 6 \u2014 implementation",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 6 \u2014 implementation": {
+      "main": [
+        [
+          {
+            "node": "Stage 7 \u2014 test",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Stage 7 \u2014 test": {
+      "main": [
+        [
+          {
+            "node": "Mark completed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "pinData": {},
+  "meta": {
+    "description": "Parent SDLC pipeline: Webhook \u2192 7 stage_template invocations \u2192 mark completed"
+  }
+}

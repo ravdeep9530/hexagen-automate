@@ -1,0 +1,11 @@
+{
+  "templates": {
+    "next-app-shadcn": {
+      "description": "Next.js 15 (App Router) + TypeScript + Tailwind + minimal shadcn-style UI primitives + Vitest. Use for SaaS web apps, dashboards, marketing sites with interactive features.",
+      "root": "templates/next-app-shadcn",
+      "scaffold_pr_title": "chore: scaffold Next.js + Tailwind + shadcn",
+      "scaffold_pr_body": "## Context\n\nAuto-scaffolded by the SDLC Agentic Pipeline using the `next-app-shadcn` curated template.\n\n## Includes\n\n- Next.js 15 (App Router)\n- TypeScript strict mode\n- Tailwind CSS with shadcn-style design tokens (CSS variables, light + dark)\n- Minimal `Button` + `Card` UI primitives\n- Vitest + React Testing Library for unit tests\n- ESLint via `next/core-web-vitals`\n\n## Why first\n\nFeature tickets in subsequent PRs assume this scaffold is in place — `package.json`, `tsconfig.json`, `tailwind.config.ts`, and the `@/*` path alias all need to exist before the agent can add components on top.\n\n## Self-review\n\nGenerated from `templates/next-app-shadcn/`. No business logic.",
+      "branch_name": "scaffold/next-app-shadcn"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+- [SDLC pipeline stack](project_sdlc_pipeline_stack.md) — n8n + Dify, models: GPT-4.1 + DeepSeek-R1 + Kimi-K2.6 (all in Azure Foundry / Azure OpenAI), HITL at every step
+- [Deployment target](project_deployment_target.md) — running on Azure VM `docker-vm-dev-01` via Tailscale (NOT local Mac); access via `http://docker-vm-dev-01:PORT`
+- [Dify admin API](reference_dify_admin.md) — login pattern (base64 password, CSRF header), useful endpoints, provider IDs in use
+- [Approved plan location](reference_approved_plan.md) — ~/.claude/plans/so-but-flow-you-wise-parnas.md has the full design
